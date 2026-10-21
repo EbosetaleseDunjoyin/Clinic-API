@@ -15,6 +15,13 @@ const h = (fn) => (req, res, next) => fn(req, res).catch(next);
 
 const page = fs.readFileSync(path.join(__dirname, 'page.html'), 'utf8');
 app.get('/', (req, res) => res.type('html').send(page.replace('__API_KEY__', process.env.API_KEY ?? '')));
+app.get('/openapi.yaml', (req, res) => res.sendFile(path.join(__dirname, 'openapi.yaml')));
+app.get('/docs', (req, res) => res.type('html').send(`<!doctype html>
+<title>Clinic Booking API docs</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.17.14/swagger-ui.css">
+<div id="ui"></div>
+<script src="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.17.14/swagger-ui-bundle.js"></script>
+<script>SwaggerUIBundle({ url: 'openapi.yaml', dom_id: '#ui' });</script>`));
 
 app.use((req, res, next) => {
   const key = process.env.API_KEY;
@@ -39,7 +46,6 @@ app.post('/reset', h(async (req, res) => {
         'INSERT INTO slots (id, provider, start, "end") SELECT * FROM unnest($1::text[], $2::text[], $3::text[], $4::text[])',
         ['id', 'provider', 'start', 'end'].map((k) => slots.map((s) => s[k])),
       );
-      // Later queries cast start to timestamptz, so reject anything Postgres can't parse now.
       await c.query('SELECT start::timestamptz, "end"::timestamptz FROM slots');
     });
   } catch (e) {

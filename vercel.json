@@ -1,4 +1,4 @@
 {
   "rewrites": [{ "source": "/(.*)", "destination": "/api" }],
-  "functions": { "api/index.js": { "includeFiles": "page.html" } }
+  "functions": { "api/index.js": { "includeFiles": "{page.html,openapi.yaml}" } }
 }

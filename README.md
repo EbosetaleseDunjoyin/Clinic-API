@@ -5,6 +5,8 @@ It implements all five levels of the [assessment spec](https://koyaacademy.com/a
 
 Every API request needs the `X-API-Key` header. Every error looks like `{"error": "..."}`.
 
+Full reference: Swagger UI at `/docs` (spec: [openapi.yaml](openapi.yaml), also served at `/openapi.yaml`).
+
 | Endpoint | Purpose |
 |---|---|
 | `POST /reset` | Replace all slots and delete every booking |

@@ -32,6 +32,11 @@ const reset = () => call('POST', '/reset', {
   ],
 });
 
+test('docs are public', async () => {
+  assert.equal((await fetch(`${base}/docs`)).status, 200);
+  assert.match(await (await fetch(`${base}/openapi.yaml`)).text(), /^openapi: 3/);
+});
+
 test('level 1-2: auth, slots, booking, lookup, validation', async () => {
   assert.equal((await fetch(`${base}/slots`)).status, 401);
   assert.equal((await call('GET', '/slots', undefined, { 'X-API-Key': 'wrong' })).status, 401);

@@ -1,0 +1,257 @@
+openapi: 3.0.3
+info:
+  title: Clinic Booking API
+  version: 1.0.0
+  description: |
+    Book clinic appointment slots.
+
+    Every request needs the `X-API-Key` header (click **Authorize**). Every error body is `{"error": "..."}`.
+servers:
+  - url: /
+security:
+  - apiKey: []
+
+paths:
+  /reset:
+    post:
+      summary: Replace all slots and delete every booking
+      description: Also clears idempotency keys and rate-limit history.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [slots]
+              properties:
+                slots:
+                  type: array
+                  description: Slot ids must be unique.
+                  items: { $ref: '#/components/schemas/Slot' }
+            example:
+              slots:
+                - { id: s1, provider: Dr Ade, start: '2030-01-01T09:00:00Z', end: '2030-01-01T09:30:00Z' }
+                - { id: s2, provider: Dr Bo, start: '2030-01-01T10:00:00Z', end: '2030-01-01T10:30:00Z' }
+      responses:
+        '200':
+          description: Slots replaced
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean, example: true }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /slots:
+    get:
+      summary: List slots, earliest first
+      parameters:
+        - name: provider
+          in: query
+          description: Only slots for this provider (exact match).
+          schema: { type: string }
+          example: Dr Ade
+      responses:
+        '200':
+          description: Slots, ordered by start time. Includes slots that have already started.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  slots:
+                    type: array
+                    items:
+                      allOf:
+                        - $ref: '#/components/schemas/Slot'
+                        - type: object
+                          properties:
+                            available:
+                              type: boolean
+                              description: false while the slot has a confirmed booking.
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /bookings:
+    post:
+      summary: Book a slot
+      description: |
+        `name` is trimmed; `email` is trimmed and lowercased.
+
+        **Rate limit:** 5 attempts per email per sliding minute, failed attempts included. The 6th returns 429 with `Retry-After`.
+
+        **Idempotency:** send an `Idempotency-Key` to make retries safe. Repeating the key with the same body
+        replays the first response (status and body, including errors). The same key with a different body returns 422.
+        A rate-limited (429) attempt is not stored, so it can be retried with the same key.
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: false
+          schema: { type: string }
+          example: 6f1c2d3e-booking-1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [slot_id, name, email]
+              properties:
+                slot_id: { type: string, example: s1 }
+                name: { type: string, example: Ada Obi }
+                email: { type: string, format: email, example: ada@example.com }
+      responses:
+        '201':
+          description: Booking confirmed
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Booking' }
+        '400':
+          description: Missing field, invalid email, slot has already started, or body is not valid JSON
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { error: 'slot_id, name and email are required' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404':
+          description: Slot not found
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { error: slot not found }
+        '409':
+          description: Slot already has a confirmed booking
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { error: slot is already booked }
+        '422':
+          description: Idempotency-Key was already used with a different body
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '429':
+          description: Too many booking attempts for this email
+          headers:
+            Retry-After:
+              description: Seconds until the next attempt is allowed (1-60).
+              schema: { type: integer }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { error: 'too many booking attempts, try again later' }
+    get:
+      summary: List a person's bookings, oldest first
+      description: Cursor-paginated. Pass `next_cursor` from the previous page as `cursor`; the last page has `next_cursor` null.
+      parameters:
+        - name: email
+          in: query
+          required: true
+          description: Case-insensitive.
+          schema: { type: string }
+          example: ada@example.com
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 50, default: 10 }
+        - name: cursor
+          in: query
+          description: Opaque value from `next_cursor`.
+          schema: { type: string }
+      responses:
+        '200':
+          description: A page of bookings (confirmed and cancelled)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  bookings:
+                    type: array
+                    items: { $ref: '#/components/schemas/Booking' }
+                  next_cursor:
+                    type: string
+                    nullable: true
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /bookings/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      summary: Look up a booking
+      responses:
+        '200':
+          description: The booking
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Booking' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/BookingNotFound' }
+    delete:
+      summary: Cancel a booking
+      description: Frees the slot for someone else to book.
+      responses:
+        '200':
+          description: The cancelled booking
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Booking' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/BookingNotFound' }
+        '409':
+          description: Booking is already cancelled
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { error: booking already cancelled }
+
+components:
+  securitySchemes:
+    apiKey:
+      type: apiKey
+      in: header
+      name: X-API-Key
+  schemas:
+    Slot:
+      type: object
+      required: [id, provider, start, end]
+      properties:
+        id: { type: string, example: s1 }
+        provider: { type: string, example: Dr Ade }
+        start: { type: string, format: date-time, description: Returned exactly as sent to /reset. }
+        end: { type: string, format: date-time }
+    Booking:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        slot_id: { type: string, example: s1 }
+        name: { type: string, example: Ada Obi }
+        email: { type: string, example: ada@example.com }
+        status: { type: string, enum: [confirmed, cancelled] }
+        created_at: { type: string, format: date-time }
+    Error:
+      type: object
+      properties:
+        error: { type: string }
+  responses:
+    BadRequest:
+      description: Invalid input
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Unauthorized:
+      description: Missing or invalid API key
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: Missing or invalid API key }
+    BookingNotFound:
+      description: Booking not found
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: booking not found }
