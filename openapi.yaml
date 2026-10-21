@@ -7,7 +7,7 @@ info:
 
     Every request needs the `X-API-Key` header (click **Authorize**). Every error body is `{"error": "..."}`.
 servers:
-  - url: /
+  - url: /api
 security:
   - apiKey: []
 

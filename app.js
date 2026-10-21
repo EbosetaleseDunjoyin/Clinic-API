@@ -5,6 +5,7 @@ const express = require('express');
 const db = require('./db');
 
 const app = express();
+const api = express.Router();
 const COLS = 'id, slot_id, name, email, status, created_at';
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const RATE_LIMIT = 5;
@@ -23,15 +24,15 @@ app.get('/docs', (req, res) => res.type('html').send(`<!doctype html>
 <script src="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.17.14/swagger-ui-bundle.js"></script>
 <script>SwaggerUIBundle({ url: 'openapi.yaml', dom_id: '#ui' });</script>`));
 
-app.use((req, res, next) => {
+api.use((req, res, next) => {
   const key = process.env.API_KEY;
   if (!key || req.get('X-API-Key') !== key) return res.status(401).json({ error: 'Missing or invalid API key' });
   next();
 });
 
-app.use(express.json({ type: () => true }));
+api.use(express.json({ type: () => true }));
 
-app.post('/reset', h(async (req, res) => {
+api.post('/reset', h(async (req, res) => {
   const slots = req.body?.slots;
   if (!Array.isArray(slots)) return res.status(400).json({ error: 'slots must be an array' });
   const valid = slots.every((s) => s && ['id', 'provider', 'start', 'end'].every((k) => typeof s[k] === 'string' && s[k])
@@ -55,7 +56,7 @@ app.post('/reset', h(async (req, res) => {
   res.json({ ok: true });
 }));
 
-app.get('/slots', h(async (req, res) => {
+api.get('/slots', h(async (req, res) => {
   const provider = typeof req.query.provider === 'string' ? req.query.provider : null;
   const { rows } = await db.query(
     `SELECT s.id, s.provider, s.start, s."end",
@@ -126,7 +127,7 @@ async function bookIdempotent(key, body) {
   });
 }
 
-app.post('/bookings', h(async (req, res) => {
+api.post('/bookings', h(async (req, res) => {
   const body = req.body && typeof req.body === 'object' ? req.body : {};
   const key = req.get('Idempotency-Key');
   const result = key ? await bookIdempotent(key, body) : await db.tx((c) => book(c, body));
@@ -134,7 +135,7 @@ app.post('/bookings', h(async (req, res) => {
   res.status(result.status).json(result.body);
 }));
 
-app.get('/bookings', h(async (req, res) => {
+api.get('/bookings', h(async (req, res) => {
   const email = str(req.query.email).toLowerCase();
   if (!email) return res.status(400).json({ error: 'email is required' });
   const limit = req.query.limit ?? '10';
@@ -155,13 +156,13 @@ app.get('/bookings', h(async (req, res) => {
   });
 }));
 
-app.get('/bookings/:id', h(async (req, res) => {
+api.get('/bookings/:id', h(async (req, res) => {
   const { rows: [booking] } = await db.query(`SELECT ${COLS} FROM bookings WHERE id = $1`, [req.params.id]);
   if (!booking) return res.status(404).json({ error: 'booking not found' });
   res.json(booking);
 }));
 
-app.delete('/bookings/:id', h(async (req, res) => {
+api.delete('/bookings/:id', h(async (req, res) => {
   const { rows: [booking] } = await db.query(
     `UPDATE bookings SET status = 'cancelled' WHERE id = $1 AND status = 'confirmed' RETURNING ${COLS}`,
     [req.params.id],
@@ -171,6 +172,7 @@ app.delete('/bookings/:id', h(async (req, res) => {
   res.status(rowCount ? 409 : 404).json({ error: rowCount ? 'booking already cancelled' : 'booking not found' });
 }));
 
+app.use('/api', api);
 app.use((req, res) => res.status(404).json({ error: 'not found' }));
 
 app.use((err, req, res, next) => {

@@ -3,18 +3,18 @@
 An Express + Postgres API that lets patients book clinic appointment slots, plus a one-page web UI at `/`.
 It implements all five levels of the [assessment spec](https://koyaacademy.com/assessment-api).
 
-Every API request needs the `X-API-Key` header. Every error looks like `{"error": "..."}`.
+Every API request (under `/api`) needs the `X-API-Key` header. Every error looks like `{"error": "..."}`.
 
 Full reference: Swagger UI at `/docs` (spec: [openapi.yaml](openapi.yaml), also served at `/openapi.yaml`).
 
 | Endpoint | Purpose |
 |---|---|
-| `POST /reset` | Replace all slots and delete every booking |
-| `GET /slots?provider=` | Slots, earliest first, each with `available` |
-| `POST /bookings` | Book a slot (optional `Idempotency-Key` header) |
-| `GET /bookings?email=&limit=&cursor=` | A person's bookings, oldest first, cursor-paginated |
-| `GET /bookings/:id` | Look up a booking |
-| `DELETE /bookings/:id` | Cancel a booking |
+| `POST /api/reset` | Replace all slots and delete every booking |
+| `GET /api/slots?provider=` | Slots, earliest first, each with `available` |
+| `POST /api/bookings` | Book a slot (optional `Idempotency-Key` header) |
+| `GET /api/bookings?email=&limit=&cursor=` | A person's bookings, oldest first, cursor-paginated |
+| `GET /api/bookings/:id` | Look up a booking |
+| `DELETE /api/bookings/:id` | Cancel a booking |
 
 ## How the hard parts work
 

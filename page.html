@@ -44,7 +44,9 @@
 
   <section id="slots-view" aria-labelledby="slots-title">
     <h2 id="slots-title">Available slots</h2>
-    <ul id="slots"><li class="muted">Loading…</li></ul>
+    <label for="slot-search">Search by doctor or date</label>
+    <input id="slot-search" type="search" placeholder="e.g. Dr Ade, Mon, 21 Oct" autocomplete="off">
+    <ul id="slots" aria-live="polite"><li class="muted">Loading…</li></ul>
     <p class="error" id="slots-error" role="alert" hidden></p>
   </section>
 
@@ -93,6 +95,7 @@ let chosen = null;
 let booking = null;
 let idemKey = null;
 const slotsById = new Map();
+let openSlots = [];
 let mineEmail = '';
 let mineCursor = null;
 
@@ -123,26 +126,33 @@ function setError(id, msg) { $(id).textContent = msg || ''; $(id).hidden = !msg;
 async function loadSlots() {
   setError('slots-error');
   try {
-    const { slots } = await api('GET', '/slots');
+    const { slots } = await api('GET', '/api/slots');
     for (const s of slots) slotsById.set(s.id, s);
-    const open = slots.filter((s) => s.available && new Date(s.start) > new Date());
-    const list = $('slots');
-    list.replaceChildren();
-    if (!open.length) list.innerHTML = '<li class="muted">No free slots right now.</li>';
-    for (const s of open) {
-      const li = document.createElement('li');
-      li.innerHTML = '<div><div class="when"></div><div class="who"></div></div>';
-      li.querySelector('.when').textContent = `${fmt(s.start)} – ${fmtTime(s.end)}`;
-      li.querySelector('.who').textContent = s.provider;
-      const btn = document.createElement('button');
-      btn.textContent = 'Book';
-      btn.setAttribute('aria-label', `Book ${slotLabel(s)}`);
-      btn.onclick = () => choose(s);
-      li.append(btn);
-      list.append(li);
-    }
+    openSlots = slots.filter((s) => s.available && new Date(s.start) > new Date());
+    renderSlots();
   } catch (e) { setError('slots-error', e.message); }
 }
+
+function renderSlots() {
+  const q = $('slot-search').value.trim().toLowerCase();
+  const shown = openSlots.filter((s) => slotLabel(s).toLowerCase().includes(q));
+  const list = $('slots');
+  list.replaceChildren();
+  if (!shown.length) list.innerHTML = `<li class="muted">${openSlots.length ? 'No slots match your search.' : 'No free slots right now.'}</li>`;
+  for (const s of shown) {
+    const li = document.createElement('li');
+    li.innerHTML = '<div><div class="when"></div><div class="who"></div></div>';
+    li.querySelector('.when').textContent = `${fmt(s.start)} – ${fmtTime(s.end)}`;
+    li.querySelector('.who').textContent = s.provider;
+    const btn = document.createElement('button');
+    btn.textContent = 'Book';
+    btn.setAttribute('aria-label', `Book ${slotLabel(s)}`);
+    btn.onclick = () => choose(s);
+    li.append(btn);
+    list.append(li);
+  }
+}
+$('slot-search').oninput = renderSlots;
 
 function choose(s) {
   chosen = s;
@@ -161,7 +171,7 @@ $('form').onsubmit = async (e) => {
   if (!name || !email) return setError('form-error', 'Please enter your name and email.');
   $('submit').disabled = true;
   try {
-    booking = await api('POST', '/bookings', { slot_id: chosen.id, name, email }, { 'Idempotency-Key': idemKey });
+    booking = await api('POST', '/api/bookings', { slot_id: chosen.id, name, email }, { 'Idempotency-Key': idemKey });
     renderDone();
   } catch (err) {
     idemKey = crypto.randomUUID(); // otherwise the retry would just replay this error
@@ -202,7 +212,7 @@ async function loadMine(more = false) {
   $('more').disabled = true;
   try {
     const q = new URLSearchParams({ email: mineEmail, ...(more && { cursor: mineCursor }) });
-    const { bookings, next_cursor } = await api('GET', `/bookings?${q}`);
+    const { bookings, next_cursor } = await api('GET', `/api/bookings?${q}`);
     if (!more) $('mine').replaceChildren();
     $('mine').append(...bookings.map(bookingItem));
     if (!$('mine').children.length) $('mine').innerHTML = '<li class="muted">No bookings for this email.</li>';
@@ -221,7 +231,7 @@ $('mine-form').onsubmit = (e) => {
 $('more').onclick = () => loadMine(true);
 
 $('cancel').onclick = async () => {
-  try { booking = await api('DELETE', `/bookings/${encodeURIComponent(booking.id)}`); renderDone(); }
+  try { booking = await api('DELETE', `/api/bookings/${encodeURIComponent(booking.id)}`); renderDone(); }
   catch (e) { setError('done-error', e.message); }
 };
 $('back').onclick = () => show('slots-view');
