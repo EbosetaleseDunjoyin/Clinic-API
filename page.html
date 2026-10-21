@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Book an appointment</title>
+<style>
+  :root { --bg: #f6f7f9; --card: #fff; --text: #1d2330; --muted: #5d6676; --line: #dde1e7; --accent: #0b6e4f; --accent-text: #fff; --danger: #b42318; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #12151b; --card: #1b2029; --text: #e7eaf0; --muted: #9aa3b2; --line: #2c3340; --accent: #3fb68b; --accent-text: #0b1410; --danger: #f97066; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.5 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+  main { max-width: 640px; margin: 0 auto; padding: 32px 16px 64px; }
+  h1 { font-size: 1.6rem; margin: 0 0 4px; }
+  h2 { font-size: 1.1rem; margin: 0 0 12px; }
+  p.lead { color: var(--muted); margin: 0 0 24px; }
+  section { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 20px; margin-bottom: 16px; }
+  ul { list-style: none; margin: 0; padding: 0; }
+  li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 0; border-top: 1px solid var(--line); }
+  li:first-child { border-top: 0; }
+  .when { font-weight: 600; }
+  .who, .muted { color: var(--muted); font-size: .9rem; }
+  button { font: inherit; border: 0; border-radius: 8px; padding: 8px 16px; background: var(--accent); color: var(--accent-text); cursor: pointer; }
+  button.secondary { background: transparent; color: var(--text); border: 1px solid var(--line); }
+  button:disabled { opacity: .5; cursor: default; }
+  button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  label { display: block; font-weight: 600; margin: 12px 0 4px; }
+  input { width: 100%; font: inherit; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--text); }
+  .actions { display: flex; gap: 8px; margin-top: 16px; flex-wrap: wrap; }
+  .error { color: var(--danger); margin: 12px 0 0; }
+  dl { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 0; }
+  dt { color: var(--muted); }
+  dd { margin: 0; overflow-wrap: anywhere; }
+  .tag { font-size: .8rem; padding: 2px 8px; border-radius: 99px; border: 1px solid var(--line); color: var(--muted); }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Book an appointment</h1>
+  <p class="lead">Pick a free slot, add your details, and you're booked.</p>
+
+  <section id="slots-view" aria-labelledby="slots-title">
+    <h2 id="slots-title">Available slots</h2>
+    <ul id="slots"><li class="muted">Loading…</li></ul>
+    <p class="error" id="slots-error" role="alert" hidden></p>
+  </section>
+
+  <section id="form-view" aria-labelledby="form-title" hidden>
+    <h2 id="form-title">Your details</h2>
+    <p class="muted" id="form-slot"></p>
+    <form id="form" novalidate>
+      <label for="name">Full name</label>
+      <input id="name" name="name" autocomplete="name" required>
+      <label for="email">Email</label>
+      <input id="email" name="email" type="email" autocomplete="email" required>
+      <p class="error" id="form-error" role="alert" hidden></p>
+      <div class="actions">
+        <button type="submit" id="submit">Confirm booking</button>
+        <button type="button" class="secondary" id="back">Back</button>
+      </div>
+    </form>
+  </section>
+
+  <section id="done-view" aria-labelledby="done-title" hidden>
+    <h2 id="done-title" tabindex="-1">You're booked</h2>
+    <dl id="details"></dl>
+    <p class="error" id="done-error" role="alert" hidden></p>
+    <div class="actions">
+      <button type="button" class="secondary" id="cancel">Cancel this booking</button>
+      <button type="button" id="again">Book another</button>
+    </div>
+  </section>
+</main>
+<script>
+const API_KEY = '__API_KEY__';
+const $ = (id) => document.getElementById(id);
+let chosen = null;
+let booking = null;
+let idemKey = null;
+
+async function api(method, path, body, headers = {}) {
+  const res = await fetch(path, {
+    method,
+    headers: { 'X-API-Key': API_KEY, 'Content-Type': 'application/json', ...headers },
+    body: body && JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
+  return data;
+}
+
+const fmt = (iso) => new Date(iso).toLocaleString(undefined, { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+const fmtTime = (iso) => new Date(iso).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+const slotLabel = (s) => `${fmt(s.start)} – ${fmtTime(s.end)} with ${s.provider}`;
+
+// The slot list stays visible while the form is open.
+function show(view) {
+  $('slots-view').hidden = view === 'done-view';
+  $('form-view').hidden = view !== 'form-view';
+  $('done-view').hidden = view !== 'done-view';
+}
+
+function setError(id, msg) { $(id).textContent = msg || ''; $(id).hidden = !msg; }
+
+async function loadSlots() {
+  setError('slots-error');
+  try {
+    const { slots } = await api('GET', '/slots');
+    const open = slots.filter((s) => s.available && new Date(s.start) > new Date());
+    const list = $('slots');
+    list.replaceChildren();
+    if (!open.length) list.innerHTML = '<li class="muted">No free slots right now.</li>';
+    for (const s of open) {
+      const li = document.createElement('li');
+      li.innerHTML = '<div><div class="when"></div><div class="who"></div></div>';
+      li.querySelector('.when').textContent = `${fmt(s.start)} – ${fmtTime(s.end)}`;
+      li.querySelector('.who').textContent = s.provider;
+      const btn = document.createElement('button');
+      btn.textContent = 'Book';
+      btn.setAttribute('aria-label', `Book ${slotLabel(s)}`);
+      btn.onclick = () => choose(s);
+      li.append(btn);
+      list.append(li);
+    }
+  } catch (e) { setError('slots-error', e.message); }
+}
+
+function choose(s) {
+  chosen = s;
+  idemKey = crypto.randomUUID(); // a double-click or retry of this booking can't create two
+  $('form-slot').textContent = slotLabel(s);
+  setError('form-error');
+  show('form-view');
+  $('form-view').scrollIntoView({ behavior: 'smooth' });
+  $('name').focus();
+}
+
+$('form').onsubmit = async (e) => {
+  e.preventDefault();
+  setError('form-error');
+  const name = $('name').value.trim(), email = $('email').value.trim();
+  if (!name || !email) return setError('form-error', 'Please enter your name and email.');
+  $('submit').disabled = true;
+  try {
+    booking = await api('POST', '/bookings', { slot_id: chosen.id, name, email }, { 'Idempotency-Key': idemKey });
+    renderDone();
+  } catch (err) {
+    idemKey = crypto.randomUUID(); // otherwise the retry would just replay this error
+    setError('form-error', err.message);
+  } finally { $('submit').disabled = false; }
+};
+
+function renderDone() {
+  const rows = [['Booking ID', booking.id], ['Appointment', slotLabel(chosen)], ['Name', booking.name],
+    ['Email', booking.email], ['Status', booking.status], ['Booked at', fmt(booking.created_at)]];
+  $('details').replaceChildren(...rows.flatMap(([k, v]) => {
+    const dt = document.createElement('dt'); dt.textContent = k;
+    const dd = document.createElement('dd'); dd.textContent = v;
+    return [dt, dd];
+  }));
+  $('done-title').textContent = booking.status === 'cancelled' ? 'Booking cancelled' : "You're booked";
+  $('cancel').hidden = booking.status === 'cancelled';
+  setError('done-error');
+  show('done-view');
+  $('done-title').focus();
+}
+
+$('cancel').onclick = async () => {
+  try { booking = await api('DELETE', `/bookings/${encodeURIComponent(booking.id)}`); renderDone(); }
+  catch (e) { setError('done-error', e.message); }
+};
+$('back').onclick = () => show('slots-view');
+$('again').onclick = () => { $('form').reset(); show('slots-view'); loadSlots(); };
+
+loadSlots();
+</script>
+</body>
+</html>

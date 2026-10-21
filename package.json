@@ -1,0 +1,18 @@
+{
+  "name": "clinic-booking-api",
+  "version": "1.0.0",
+  "main": "app.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test test.js"
+  },
+  "license": "ISC",
+  "description": "Clinic booking API and web page (Koya assessment Task 1)",
+  "dependencies": {
+    "express": "^4.22.3",
+    "pg": "^8.23.1"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
